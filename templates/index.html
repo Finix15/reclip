@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ReClip — Free Media Downloader</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg: #f4f1eb;
@@ -22,14 +20,29 @@
       --shimmer: linear-gradient(90deg, #ebe8e2 25%, #f0ede7 50%, #ebe8e2 75%);
     }
 
+    [data-theme='dark'] {
+      --bg: #0d0f17;
+      --fg: #ffffff;
+      --accent-gradient: linear-gradient(90deg, #ff4c94, #7c4dff);
+      --accent: #ff4c94;
+      --accent-hover: #ff6ba6;
+      --muted: #9499b0;
+      --card: #161924;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --success: #3ab167;
+      --error: #e05252;
+      --shimmer: linear-gradient(90deg, #161924 25%, #232635 50%, #161924 75%);
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: 'DM Mono', monospace;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
       background: var(--bg);
       color: var(--fg);
       min-height: 100vh;
       overflow-x: hidden;
+      transition: background-color 0.3s, color 0.3s;
     }
 
     body::after {
@@ -48,16 +61,31 @@
       padding: 60px 24px 80px;
     }
 
-    .brand { margin-bottom: 48px; }
+    .brand { margin-bottom: 48px; position: relative; }
+    .brand-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 4px;
+    }
     .brand h1 {
-      font-family: 'Instrument Serif', serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       font-size: 4.2rem;
-      font-weight: 400;
+      font-weight: 700;
       letter-spacing: -0.03em;
       line-height: 1;
       color: var(--fg);
     }
-    .brand h1 em { font-style: italic; color: var(--accent); }
+    .brand h1 em {
+      font-style: italic;
+      color: var(--accent);
+      transition: all 0.3s;
+    }
+    [data-theme='dark'] .brand h1 em {
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
     .brand p {
       margin-top: 10px;
       font-size: 0.78rem;
@@ -73,8 +101,8 @@
       border-radius: var(--radius);
       background: var(--card);
       color: var(--fg);
-      font-family: 'DM Mono', monospace;
-      font-size: 0.88rem;
+      font-family: inherit;
+      font-size: 0.95rem;
       outline: none;
       resize: none;
       min-height: 56px;
@@ -83,7 +111,7 @@
     }
     textarea:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(232, 93, 42, 0.08);
+      box-shadow: 0 0 0 3px rgba(124, 77, 255, 0.15);
     }
     textarea::placeholder { color: var(--muted); }
 
@@ -109,8 +137,9 @@
     }
     .pill {
       padding: 9px 18px;
-      font-family: 'DM Mono', monospace;
-      font-size: 0.76rem;
+      font-family: inherit;
+      font-size: 0.8rem;
+      font-weight: 600;
       border: none;
       background: transparent;
       color: var(--muted);
@@ -129,15 +158,23 @@
       border-radius: 10px;
       background: var(--accent);
       color: #fff;
-      font-family: 'DM Mono', monospace;
-      font-size: 0.82rem;
-      font-weight: 500;
+      font-family: inherit;
+      font-size: 0.88rem;
+      font-weight: 600;
       cursor: pointer;
-      transition: background 0.2s, transform 0.1s;
+      transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
       letter-spacing: 0.04em;
       text-transform: uppercase;
     }
+    [data-theme='dark'] .fetch-btn {
+      background: var(--accent-gradient);
+      box-shadow: 0 4px 15px rgba(124, 77, 255, 0.3);
+    }
     .fetch-btn:hover { background: var(--accent-hover); }
+    [data-theme='dark'] .fetch-btn:hover {
+      box-shadow: 0 4px 20px rgba(124, 77, 255, 0.5);
+      filter: brightness(1.1);
+    }
     .fetch-btn:active { transform: scale(0.98); }
     .fetch-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
@@ -153,6 +190,14 @@
       padding: 14px;
       margin-bottom: 10px;
       animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    [data-theme='dark'] .card {
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+    [data-theme='dark'] .card:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
     }
     @keyframes slideUp {
       from { opacity: 0; transform: translateY(12px); }
@@ -219,8 +264,8 @@
       justify-content: center;
     }
     .card-title {
-      font-family: 'Instrument Serif', serif;
-      font-size: 1rem;
+      font-weight: 700;
+      font-size: 1.1rem;
       line-height: 1.3;
       color: var(--fg);
       margin-bottom: 2px;
@@ -249,15 +294,15 @@
       border-radius: 7px;
       background: var(--fg);
       color: var(--bg);
-      font-family: 'DM Mono', monospace;
-      font-size: 0.7rem;
-      font-weight: 500;
+      font-family: inherit;
+      font-size: 0.75rem;
+      font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
       letter-spacing: 0.03em;
       text-transform: uppercase;
     }
-    .card-dl-btn:hover { background: #2d2d2a; }
+    .card-dl-btn:hover { background: var(--accent-hover); color: #fff; }
     .card-dl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .card-dl-btn.done { background: var(--success); color: #fff; }
     .card-dl-btn.error { background: var(--error); color: #fff; }
@@ -276,8 +321,9 @@
       border-radius: 6px;
       background: transparent;
       color: var(--muted);
-      font-family: 'DM Mono', monospace;
-      font-size: 0.65rem;
+      font-family: inherit;
+      font-size: 0.7rem;
+      font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
     }
@@ -332,15 +378,15 @@
       border-radius: 10px;
       background: var(--fg);
       color: var(--bg);
-      font-family: 'DM Mono', monospace;
-      font-size: 0.82rem;
-      font-weight: 500;
+      font-family: inherit;
+      font-size: 0.88rem;
+      font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
       letter-spacing: 0.04em;
       text-transform: uppercase;
     }
-    .dl-all-btn:hover { background: #2d2d2a; }
+    .dl-all-btn:hover { background: var(--accent-hover); color: #fff; }
     .dl-all-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .spin {
@@ -364,6 +410,31 @@
       line-height: 1.8;
     }
 
+    /* Theme Toggle */
+    .theme-toggle {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 10px;
+      border-radius: 50%;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .theme-toggle:hover {
+      background: rgba(0,0,0,0.05);
+      color: var(--fg);
+    }
+    [data-theme='dark'] .theme-toggle:hover {
+      background: rgba(255,255,255,0.05);
+    }
+    .theme-toggle svg { width: 22px; height: 22px; stroke: currentColor; }
+    .theme-toggle .sun { display: none; }
+    [data-theme='dark'] .theme-toggle .sun { display: block; }
+    [data-theme='dark'] .theme-toggle .moon { display: none; }
+
     /* Mobile */
     @media (max-width: 500px) {
       .brand h1 { font-size: 3rem; }
@@ -381,9 +452,22 @@
   </style>
 </head>
 <body>
+  <script>
+    // Theme initialization
+    (function() {
+      const theme = localStorage.getItem('reclip-theme') || 'light';
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
   <div class="page">
     <div class="brand">
-      <h1>Re<em>Clip</em></h1>
+      <div class="brand-header">
+        <h1>Re<em>Clip</em></h1>
+        <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">
+          <svg class="sun" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="moon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+      </div>
       <p>Free media downloader</p>
     </div>
 
@@ -684,6 +768,20 @@
 
       if (btn) { btn.disabled = false; btn.textContent = 'Download All'; }
     }
+
+    // Auto-shutdown heartbeat
+    setInterval(() => {
+      fetch('/api/heartbeat').catch(() => {});
+    }, 10000);
+
+    // Theme Toggle Logic
+    const themeBtn = document.getElementById('theme-toggle');
+    themeBtn.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('reclip-theme', next);
+    });
   </script>
 </body>
 </html>

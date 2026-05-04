@@ -4,20 +4,25 @@ import glob
 import json
 import subprocess
 import threading
+import time
+import sys
 from flask import Flask, request, jsonify, send_file, render_template
+
+YT_DLP_BIN = os.path.join(os.path.dirname(sys.executable), "yt-dlp")
 
 app = Flask(__name__)
 DOWNLOAD_DIR = os.path.join(os.path.dirname(__file__), "downloads")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 jobs = {}
+last_heartbeat = time.time()
 
 
 def run_download(job_id, url, format_choice, format_id):
     job = jobs[job_id]
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
-    cmd = ["yt-dlp", "--no-playlist", "-o", out_template]
+    cmd = [YT_DLP_BIN, "--no-playlist", "-o", out_template]
 
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
@@ -85,7 +90,7 @@ def get_info():
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    cmd = ["yt-dlp", "--no-playlist", "-j", url]
+    cmd = [YT_DLP_BIN, "--no-playlist", "-j", url]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
@@ -165,7 +170,27 @@ def download_file(job_id):
     return send_file(job["file"], as_attachment=True, download_name=job["filename"])
 
 
+@app.route("/api/heartbeat")
+def heartbeat():
+    global last_heartbeat
+    last_heartbeat = time.time()
+    return "OK"
+
+
+def monitor_heartbeat():
+    while True:
+        time.sleep(5)
+        if time.time() - last_heartbeat > 300:
+            print("\n[Auto-Shutdown] No heartbeat detected for 5 minutes. Shutting down...")
+            os._exit(0)
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8899))
     host = os.environ.get("HOST", "127.0.0.1")
+
+    # Start heartbeat monitor
+    monitor_thread = threading.Thread(target=monitor_heartbeat, daemon=True)
+    monitor_thread.start()
+
     app.run(host=host, port=port)

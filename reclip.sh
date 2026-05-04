@@ -46,4 +46,8 @@ export PORT
 echo ""
 echo "  ReClip is running at http://localhost:$PORT"
 echo ""
+
+# Auto-open browser on macOS
+(sleep 1 && open "http://localhost:$PORT") &
+
 python3 app.py
