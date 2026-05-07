@@ -18,16 +18,19 @@ jobs = {}
 last_heartbeat = time.time()
 
 
-def run_download(job_id, url, format_choice, format_id):
+def run_download(job_id, url, format_choice, format_id, browser):
     job = jobs[job_id]
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
-    cmd = [YT_DLP_BIN, "--no-playlist", "-o", out_template]
+    cmd = [YT_DLP_BIN, "--no-playlist", "--remote-components", "ejs:github", "-o", out_template]
+    
+    if browser:
+        cmd += ["--cookies-from-browser", browser]
 
     if format_choice == "audio":
-        cmd += ["-x", "--audio-format", "mp3"]
+        cmd += ["-x", "--audio-format", "mp3", "--embed-thumbnail"]
     elif format_id:
-        cmd += ["-f", f"{format_id}+bestaudio/best", "--merge-output-format", "mp4"]
+        cmd += ["-f", f"{format_id}+bestaudio/{format_id}/bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
     else:
         cmd += ["-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
 
@@ -64,12 +67,13 @@ def run_download(job_id, url, format_choice, format_id):
         job["file"] = chosen
         ext = os.path.splitext(chosen)[1]
         title = job.get("title", "").strip()
+        prefix = job.get("prefix", "")
         # Sanitize title for filename
         if title:
-            safe_title = "".join(c for c in title if c not in r'\/:*?"<>|').strip()[:20].strip()
-            job["filename"] = f"{safe_title}{ext}" if safe_title else os.path.basename(chosen)
+            safe_title = "".join(c for c in title if c not in r'\/:*?"<>|').strip()[:60].strip()
+            job["filename"] = f"{prefix}{safe_title}{ext}" if safe_title else f"{prefix}{os.path.basename(chosen)}"
         else:
-            job["filename"] = os.path.basename(chosen)
+            job["filename"] = f"{prefix}{os.path.basename(chosen)}"
     except subprocess.TimeoutExpired:
         job["status"] = "error"
         job["error"] = "Download timed out (5 min limit)"
@@ -83,14 +87,52 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/extract-playlist", methods=["POST"])
+def extract_playlist():
+    data = request.json
+    url = data.get("url", "").strip()
+    browser = data.get("browser", "").strip()
+    if not url:
+        return jsonify({"error": "No URL provided"}), 400
+
+    cmd = [YT_DLP_BIN, "--flat-playlist", "--remote-components", "ejs:github", "-J", url]
+    if browser:
+        cmd += ["--cookies-from-browser", browser]
+        
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            return jsonify({"error": result.stderr.strip().split("\n")[-1]}), 400
+            
+        info = json.loads(result.stdout)
+        if info.get("_type") == "playlist":
+            entries = info.get("entries", [])
+            urls = []
+            for e in entries:
+                if e.get("url"):
+                    urls.append(e["url"])
+                elif e.get("id"):
+                    urls.append(f"https://www.youtube.com/watch?v={e['id']}")
+            return jsonify({"is_playlist": True, "urls": urls, "title": info.get("title", "")})
+        else:
+            return jsonify({"is_playlist": False, "urls": [url]})
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "Timed out parsing playlist"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
 @app.route("/api/info", methods=["POST"])
 def get_info():
     data = request.json
     url = data.get("url", "").strip()
+    browser = data.get("browser", "").strip()
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    cmd = [YT_DLP_BIN, "--no-playlist", "-j", url]
+    cmd = [YT_DLP_BIN, "--no-playlist", "--remote-components", "ejs:github", "-j", url]
+    if browser:
+        cmd += ["--cookies-from-browser", browser]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
@@ -136,14 +178,16 @@ def start_download():
     format_choice = data.get("format", "video")
     format_id = data.get("format_id")
     title = data.get("title", "")
+    browser = data.get("browser", "").strip()
+    file_prefix = data.get("file_prefix", "")
 
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
     job_id = uuid.uuid4().hex[:10]
-    jobs[job_id] = {"status": "downloading", "url": url, "title": title}
+    jobs[job_id] = {"status": "downloading", "url": url, "title": title, "prefix": file_prefix}
 
-    thread = threading.Thread(target=run_download, args=(job_id, url, format_choice, format_id))
+    thread = threading.Thread(target=run_download, args=(job_id, url, format_choice, format_id, browser))
     thread.daemon = True
     thread.start()
 
@@ -175,6 +219,37 @@ def heartbeat():
     global last_heartbeat
     last_heartbeat = time.time()
     return "OK"
+
+
+@app.route("/api/zip", methods=["POST"])
+def create_zip():
+    data = request.json
+    job_ids = data.get("job_ids", [])
+    title = data.get("title", "ReClip_Playlist")
+    import zipfile
+    
+    zip_filename = f"{uuid.uuid4().hex[:10]}.zip"
+    zip_path = os.path.join(DOWNLOAD_DIR, zip_filename)
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for jid in job_ids:
+                job = jobs.get(jid)
+                if job and job.get("status") == "done" and job.get("file"):
+                    if os.path.exists(job["file"]):
+                        zipf.write(job["file"], arcname=job.get("filename", os.path.basename(job["file"])))
+        return jsonify({"zip_id": zip_filename, "zip_name": f"{title}.zip"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/file-raw/<zip_id>")
+def download_zip(zip_id):
+    zip_path = os.path.join(DOWNLOAD_DIR, zip_id)
+    download_name = request.args.get("name", "Playlist.zip")
+    if not os.path.exists(zip_path):
+        return jsonify({"error": "Zip not found"}), 404
+    return send_file(zip_path, as_attachment=True, download_name=download_name)
 
 
 def monitor_heartbeat():

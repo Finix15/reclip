@@ -151,6 +151,21 @@
     .pill.active { background: var(--fg); color: var(--bg); }
     .pill:not(.active):hover { color: var(--fg); }
 
+    .browser-select {
+      padding: 9px 12px;
+      border: 1.5px solid var(--card-border);
+      border-radius: 10px;
+      background: var(--card);
+      color: var(--fg);
+      font-family: inherit;
+      font-size: 0.8rem;
+      font-weight: 600;
+      outline: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .browser-select:focus { border-color: var(--accent); }
+
     .fetch-btn {
       flex: 1;
       padding: 10px 20px;
@@ -479,6 +494,15 @@
         <button class="pill active" data-format="video" onclick="setFormat(this)">MP4</button>
         <button class="pill" data-format="audio" onclick="setFormat(this)">MP3</button>
       </div>
+      <select id="browserSelect" class="browser-select">
+        <option value="">No Cookies</option>
+        <option value="chrome">Chrome</option>
+        <option value="safari">Safari</option>
+        <option value="firefox">Firefox</option>
+        <option value="edge">Edge</option>
+        <option value="brave">Brave</option>
+        <option value="opera">Opera</option>
+      </select>
       <button class="fetch-btn" id="goBtn" onclick="go()">Fetch</button>
     </div>
 
@@ -499,6 +523,22 @@
       document.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       currentFormat = btn.dataset.format;
+      
+      // Re-render all existing cards to reflect the format change instantly
+      for (let i = 0; i < cardData.length; i++) {
+        if (cardData[i].status !== 'loading') {
+          // If a card is already downloading or done, we might want to reset it to ready
+          // so the user can download the new format, unless they want to keep the status.
+          // For now, let's just reset 'done' or 'error' back to 'ready' when format changes, 
+          // but leave 'downloading' alone to not break active downloads.
+          if (cardData[i].status === 'done' || cardData[i].status === 'error') {
+             cardData[i].status = 'ready';
+             cardData[i].filename = null;
+             cardData[i].error = null;
+          }
+          renderCard(i);
+        }
+      }
     }
 
     function parseUrls(text) {
@@ -536,12 +576,43 @@
     });
 
     async function go() {
-      const urls = parseUrls(document.getElementById('urls').value);
+      let urls = parseUrls(document.getElementById('urls').value);
       if (!urls.length) return;
 
       const btn = document.getElementById('goBtn');
       const container = document.getElementById('cards');
       btn.disabled = true;
+      btn.textContent = 'Parsing...';
+      const browser = document.getElementById('browserSelect').value;
+
+      // Expand playlists
+      let expandedUrls = [];
+      for (let u of urls) {
+        if (u.includes('list=') || u.includes('/playlist') || u.includes('/channel') || u.includes('/c/') || u.includes('/user/')) {
+          btn.textContent = 'Parsing Playlist...';
+          try {
+            const r = await fetch('/api/extract-playlist', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: u, browser })
+            });
+            const d = await r.json();
+            if (d.is_playlist && d.urls && d.urls.length > 0) {
+              expandedUrls.push(...d.urls);
+              if (d.title) window.playlistTitle = d.title;
+            } else {
+              expandedUrls.push(u);
+            }
+          } catch(e) {
+            expandedUrls.push(u);
+          }
+        } else {
+          expandedUrls.push(u);
+        }
+      }
+      
+      urls = [...new Set(expandedUrls)];
+
       btn.textContent = 'Loading...';
       container.innerHTML = '';
       cardData = [];
@@ -553,10 +624,11 @@
         renderCard(idx);
 
         try {
+          const browser = document.getElementById('browserSelect').value;
           const res = await fetch('/api/info', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url }),
+            body: JSON.stringify({ url, browser }),
           });
           const data = await res.json();
           if (data.error) {
@@ -633,10 +705,10 @@
       const isAudio = currentFormat === 'audio';
 
       let thumbHtml;
-      if (isAudio) {
-        thumbHtml = `<div class="no-thumb" style="color:var(--accent)"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>`;
-      } else if (c.thumbnail) {
+      if (c.thumbnail) {
         thumbHtml = `<img src="${c.thumbnail}" alt="">`;
+      } else if (isAudio) {
+        thumbHtml = `<div class="no-thumb" style="color:var(--accent)"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>`;
       } else {
         thumbHtml = `<div class="no-thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></div>`;
       }
@@ -678,7 +750,7 @@
       const bar = document.createElement('div');
       bar.id = 'dl-all-bar';
       bar.className = 'dl-all-bar';
-      bar.innerHTML = `<button class="dl-all-btn" onclick="dlAll()">Download All</button>`;
+      bar.innerHTML = `<button class="dl-all-btn" onclick="dlAll()">Download All as ZIP</button>`;
       document.getElementById('cards').appendChild(bar);
     }
 
@@ -687,13 +759,15 @@
       renderCard(idx);
     }
 
-    async function dlCard(idx) {
+    async function dlCardAsync(idx, skipSave = false) {
       const c = cardData[idx];
       c.status = 'downloading';
       c.error = null;
       renderCard(idx);
 
       try {
+        const browser = document.getElementById('browserSelect').value;
+        const file_prefix = window.playlistTitle ? `${(idx + 1).toString().padStart(2, '0')} - ` : "";
         const res = await fetch('/api/download', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -702,6 +776,8 @@
             format: currentFormat,
             format_id: c.selectedFormatId,
             title: c.title || '',
+            browser: browser,
+            file_prefix: file_prefix
           }),
         });
         const data = await res.json();
@@ -709,42 +785,52 @@
           c.status = 'error';
           c.error = data.error;
           renderCard(idx);
-          return;
+          return null;
         }
         c.jobId = data.job_id;
-        pollCard(idx);
+        return await pollCardAsync(idx, skipSave);
       } catch (err) {
         c.status = 'error';
         c.error = err.message;
         renderCard(idx);
+        return null;
       }
     }
 
-    function pollCard(idx) {
-      const c = cardData[idx];
-      const iv = setInterval(async () => {
-        try {
-          const res = await fetch(`/api/status/${c.jobId}`);
-          const data = await res.json();
-          if (data.status === 'done') {
-            clearInterval(iv);
-            c.status = 'done';
-            c.filename = data.filename;
-            renderCard(idx);
-            saveCard(idx);
-          } else if (data.status === 'error') {
+    function pollCardAsync(idx, skipSave) {
+      return new Promise((resolve) => {
+        const c = cardData[idx];
+        const iv = setInterval(async () => {
+          try {
+            const res = await fetch(`/api/status/${c.jobId}`);
+            const data = await res.json();
+            if (data.status === 'done') {
+              clearInterval(iv);
+              c.status = 'done';
+              c.filename = data.filename;
+              renderCard(idx);
+              if (!skipSave) saveCard(idx);
+              resolve(c.jobId);
+            } else if (data.status === 'error') {
+              clearInterval(iv);
+              c.status = 'error';
+              c.error = data.error;
+              renderCard(idx);
+              resolve(null);
+            }
+          } catch {
             clearInterval(iv);
             c.status = 'error';
-            c.error = data.error;
+            c.error = 'Lost connection to server';
             renderCard(idx);
+            resolve(null);
           }
-        } catch {
-          clearInterval(iv);
-          c.status = 'error';
-          c.error = 'Lost connection to server';
-          renderCard(idx);
-        }
-      }, 1000);
+        }, 1000);
+      });
+    }
+
+    async function dlCard(idx) {
+      await dlCardAsync(idx, false);
     }
 
     function saveCard(idx) {
@@ -760,13 +846,41 @@
       const btn = document.querySelector('.dl-all-btn');
       if (btn) { btn.disabled = true; btn.textContent = 'Downloading...'; }
 
+      let promises = [];
       for (let i = 0; i < cardData.length; i++) {
-        if (cardData[i].status === 'ready') {
-          await dlCard(i);
+        if (cardData[i].status === 'ready' || cardData[i].status === 'error') {
+          promises.push(dlCardAsync(i, true));
+        } else if (cardData[i].status === 'done' && cardData[i].jobId) {
+          promises.push(Promise.resolve(cardData[i].jobId));
         }
       }
 
-      if (btn) { btn.disabled = false; btn.textContent = 'Download All'; }
+      const jobIds = await Promise.all(promises);
+      const validIds = jobIds.filter(id => id);
+      
+      if (validIds.length > 0) {
+        if (btn) btn.textContent = 'Zipping files...';
+        try {
+          const r = await fetch('/api/zip', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({job_ids: validIds, title: window.playlistTitle || "ReClip_Files"})
+          });
+          const d = await r.json();
+          if (d.error) {
+            alert("Zip error: " + d.error);
+          } else {
+            const a = document.createElement('a');
+            a.href = `/api/file-raw/${d.zip_id}?name=${encodeURIComponent(d.zip_name)}`;
+            a.download = d.zip_name;
+            a.click();
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      if (btn) { btn.disabled = false; btn.textContent = 'Download All as ZIP'; }
     }
 
     // Auto-shutdown heartbeat
